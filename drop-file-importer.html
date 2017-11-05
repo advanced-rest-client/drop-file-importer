@@ -21,6 +21,10 @@ the License.
 <link rel="import" href="../iron-overlay-behavior/iron-overlay-behavior.html">
 <link rel="import" href="../events-target-behavior/events-target-behavior.html">
 <link rel="import" href="../iron-flex-layout/iron-flex-layout.html">
+<link rel="import" href="../web-unzip/web-unzip.html">
+<link rel="import" href="../raml-main-entry-lookup/raml-main-entry-lookup.html">
+<link rel="import" href="../paper-item/paper-item-shared-styles.html">
+<link rel="import" href="../paper-listbox/paper-listbox.html">
 
 <!--
 An element that reads data from file drop.
@@ -50,6 +54,7 @@ Custom property | Description | Default
 -->
 <dom-module id="drop-file-importer">
   <template>
+    <style include="paper-item-shared-styles"></style>
     <style>
     :host {
       display: block;
@@ -80,6 +85,10 @@ Custom property | Description | Default
       padding-left: 24px;
     }
 
+    h3 {
+      @apply --arc-font-title;
+    }
+
     .close-button {
       color: inherit;
     }
@@ -93,7 +102,9 @@ Custom property | Description | Default
 
     .dragging,
     .loader,
-    .error {
+    .error,
+    .no-entry-point,
+    .multiple-entry-points {
       @apply --layout-vertical;
       @apply --layout-center-center;
       @apply --layout-flex;
@@ -106,6 +117,14 @@ Custom property | Description | Default
     .info {
       color: var(--drop-file-importer-info-color, rgba(0, 0, 0, 0.54));
       @apply --arc-font-body1;
+    }
+
+    .no-entry-point {
+      @apply --arc-font-body1;
+    }
+
+    .paper-item {
+      cursor: pointer;
     }
     </style>
     <div class="header">
@@ -122,10 +141,31 @@ Custom property | Description | Default
       <div class="dragging" hidden$="[[!dragging]]">
         <p class="headline">Drop the file here</p>
       </div>
+
       <div class="loader" hidden$="[[!readingFile]]">
         <paper-progress indeterminate></paper-progress>
         <p class="info">It may take up to a minute.</p>
       </div>
+
+      <template is="dom-if" if="[[noEntryPoint]]">
+        <section class="no-entry-point">
+          <h3>No entry point found</h3>
+          <p>The app have scanned files and there were no candidates for an API entry point. Please, try again with other file.</p>
+        </section>
+      </template>
+
+      <template is="dom-if" if="[[multipleEntryPoints]]">
+        <section class="multiple-entry-points">
+          <h3>Multiple entry points found</h3>
+          <p>Please, select file that is the entry point to the API definition.</p>
+          <paper-listbox>
+            <template is="dom-repeat" items="[[entryPoints]]">
+              <button class="paper-item" role="option" on-tap="_useEntryPoint">[[item.path]][[item.name]]</button>
+            </template>
+          </paper-listbox>
+
+        </section>
+      </template>
 
       <template is="dom-if" if="[[importError]]">
         <div class="error">
@@ -136,6 +176,8 @@ Custom property | Description | Default
       </template>
     </div>
     <file-reader id="fileReader" loading="{{readingFile}}" readas="text" on-file-read="_importFileReady" on-file-error="_importFileError" auto></file-reader>
+    <web-unzip id="unzip" on-web-unzip-read="_fileUnzipped" auto-read flat-structure></web-unzip>
+    <raml-main-entry-lookup id="lookup" on-entry="_entryFound"></raml-main-entry-lookup>
   </template>
   <script>
   Polymer({
@@ -158,7 +200,13 @@ Custom property | Description | Default
         value: false
       },
       // Error from the file reader.
-      importError: String
+      importError: String,
+      // Will set to true when there's no entry point in the selected files.
+      noEntryPoint: Boolean,
+      // Will set to true when there's there are miltiple entry points in the selected files.
+      multipleEntryPoints: Boolean,
+      // List of detected entry points
+      entryPoints: Array
     },
 
     listeners: {
@@ -167,6 +215,10 @@ Custom property | Description | Default
       'dragover': '_onDragOver',
       'drop': '_onDrop'
     },
+
+    observers: [
+      '_cleanupOnClose(opened)'
+    ],
 
     _attachListeners: function(node) {
       this.listen(node, 'dragenter', '_enterHandler');
@@ -213,10 +265,72 @@ Custom property | Description | Default
       var files = e.dataTransfer.files;
       this._processEntries(files);
     },
-
+    /**
+     * Processes recorded files entries.
+     * @param {Array} entries List of files from the drop action.
+     */
     _processEntries: function(entries) {
-      this.set('readingFile', true);
-      this.$.fileReader.blob = entries[0];
+      this.noEntryPoint = false;
+      this.multipleEntryPoints = false;
+      this.entryPoints = undefined;
+      this.fileStructure = undefined;
+
+      if (entries.length === 1) {
+        if (entries[0].type && entries[0].type.indexOf('zip') !== -1) {
+          this.set('readingFile', true);
+          this.$.unzip.file = entries;
+        } else if (entries[0].name && entries[0].name.indexOf('.raml') !== -1) {
+          this._processRaml(entries[0]);
+        } else {
+          this.set('readingFile', true);
+          this.$.fileReader.blob = entries[0].content || entries[0];
+        }
+      } else {
+        this.$.lookup.files = entries;
+      }
+    },
+    /**
+     * Handler for `entry` custom event of raml-main-entry-lookup
+     * element.
+     */
+    _entryFound: function(e) {
+      var file = e.detail.entry;
+      if (!file) {
+        this.noEntryPoint = true;
+        return;
+      }
+      if (file instanceof Array) {
+        var exit = true;
+        // just try to find common file name
+        for (let i = 0, len = file.length; i < len; i += 1) {
+          if (file[i].name === 'api.raml') {
+            file = file[i];
+            exit = false;
+            break;
+          }
+        }
+        if (exit) {
+          this.multipleEntryPoints = true;
+          this.entryPoints = file;
+          return;
+        }
+      }
+      if (file.name.indexOf('.raml') !== -1) {
+        this._processRaml(file.entry);
+      } else {
+        this.set('readingFile', true);
+        this.$.fileReader.blob = file.entry;
+      }
+    },
+
+    _fileUnzipped: function(e) {
+      this.set('readingFile', false);
+      if (e.detail.fileStructure.length === 1) {
+        this._processEntries(e.detail.fileStructure);
+        return;
+      }
+      this.fileStructure = e.detail.fileStructure;
+      this.$.lookup.files = e.detail.fileStructure;
     },
 
     /**
@@ -236,6 +350,18 @@ Custom property | Description | Default
     _computeHideLoader: function(readingFile, importing) {
       return !readingFile && !importing;
     },
+    // Dispatches `process-incoming-data` for RAML file(s).
+    _processRaml: function(file) {
+      var filesystem = this.fileStructure || this.$.lookup.files;
+      this.fire('process-incoming-data', {
+        file: file,
+        filesystem: filesystem,
+        type: 'raml'
+      }, {
+        cancelable: true
+      });
+      this.opened = false;
+    },
     /**
      * Fires `process-incoming-data` event with the data.
      * ARC  handles this event to normalize data.
@@ -244,12 +370,36 @@ Custom property | Description | Default
      */
     processImportData: function(data) {
       this.fire('process-incoming-data', {
-        data: data
+        data: data,
+        type: 'json'
       }, {
         cancelable: true
       });
       this.opened = false;
-    }
+    },
+    /**
+     * Handler for user entry point selection.
+     */
+    _useEntryPoint: function(e) {
+      var item = e.model.get('item');
+      this.multipleEntryPoints = false;
+      this.entryPoints = undefined;
+      this._processRaml(item.entry);
+    },
+    /**
+     * Clean ups references to resources when closing the overlay
+     */
+    _cleanupOnClose: function(opened) {
+      if (opened) {
+        return;
+      }
+      this.multipleEntryPoints = false;
+      this.entryPoints = undefined;
+      this.fileStructure = undefined;
+      this.$.lookup.files = undefined;
+      this.$.fileReader.blob = undefined;
+      this.$.unzip.file = undefined;
+    },
 
     /**
      * Fired when data were read and ready to be processed.
@@ -257,7 +407,11 @@ Custom property | Description | Default
      * Note, the event can be canceled.
      *
      * @event process-incoming-data
-     * @param {String} data Read data
+     * @param {?String} data Optional for type other than `json`. Read data.
+     * @param {String} type Content type. Currently either `json` or `raml`.
+     * @param {?Array} filesystem Optional. If there was a list of files
+     * associated with the import then it contains list of the files.
+     * @param {Blob} file Required if `type` is `raml`. Main RAML file.
      */
   });
   </script>
