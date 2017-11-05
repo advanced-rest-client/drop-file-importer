@@ -20,31 +20,29 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
 
   <link rel="import" href="../../iron-demo-helpers/demo-pages-shared-styles.html">
   <link rel="import" href="../../iron-demo-helpers/demo-snippet.html">
-
+  <link rel="import" href="../../paper-toast/paper-toast.html">
   <link rel="import" href="../drop-file-importer.html">
-
   <style is="custom-style" include="demo-pages-shared-styles">
 
-    .vertical-section-container {
-      max-width: 600px;
-    }
+  .vertical-section-container {
+    max-width: 600px;
+  }
 
-    :root {
-      --arc-font-headline: {
-        @apply --paper-font-headline;
-      };
-
-      --arc-font-subhead: {
-        @apply --paper-font-subhead;
-      };
-
-      --arc-font-body1: {
-        @apply --paper-font-body1;
-      };
-      
-      --primary-color: #00A2DF;
-    }
-
+  :root {
+    --primary-color: #00A2DF;
+    --arc-font-headline: {
+      @apply --paper-font-headline;
+    };
+    --arc-font-subhead: {
+      @apply --paper-font-subhead;
+    };
+    --arc-font-body1: {
+      @apply --paper-font-body1;
+    };
+    --arc-font-title: {
+      @apply --paper-font-title;
+    };
+  }
   </style>
 </head>
 <body unresolved>
@@ -56,5 +54,14 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
       </template>
     </demo-snippet>
   </div>
+  <paper-toast text="Data sent for processing" id="importData"></paper-toast>
+  <paper-toast text="RAML files sent for processing" id="importRaml"></paper-toast>
+  <script>
+  window.addEventListener('process-incoming-data', function(e) {
+    var toastId = e.detail.type === 'json' ? 'importData' : 'importRaml';
+    var toast = document.getElementById(toastId);
+    toast.opened = true;
+  });
+  </script>
 </body>
 </html>
