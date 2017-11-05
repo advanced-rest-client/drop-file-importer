@@ -12,13 +12,10 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1.0, user-scalable=yes">
-
     <script src="../../webcomponentsjs/webcomponents-lite.js"></script>
     <script src="../../web-component-tester/browser.js"></script>
     <script src="../../iron-test-helpers/test-helpers.js"></script>
     <script src="../../iron-test-helpers/mock-interactions.js"></script>
-
-    <!-- Step 1: import the element to test -->
     <link rel="import" href="../drop-file-importer.html">
   </head>
   <body>
@@ -30,16 +27,272 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
     </test-fixture>
 
     <script>
-    /* global fixture, assert */
-    suite('basic', function() {
-
+    /* global fixture, assert, MockInteractions */
+    const baseUrl = location.href.substr(0, location.href.lastIndexOf('/') + 1);
+    suite('Basic', function() {
       var element;
       setup(function() {
         element = fixture('basic');
       });
-
       test('is closed by default', function() {
         assert.isFalse(element.opened);
+      });
+    });
+
+    suite('Single file', function() {
+      var element;
+      var file;
+      suite('Regular file', function() {
+
+        setup(function() {
+          element = fixture('basic');
+          file = new Blob(['test'], {type: 'text/plain'});
+        });
+
+        test('Processes single regular file', function() {
+          element._processEntries([file]);
+          assert.isTrue(element.$.fileReader.blob === file);
+        });
+
+        test('Sets readingFile flag', function() {
+          element._processEntries([file]);
+          assert.isTrue(element.readingFile);
+        });
+
+        test('Fires process-incoming-data custom event', function(done) {
+          element.addEventListener('process-incoming-data', function clb(e) {
+            element.removeEventListener('process-incoming-data', clb);
+            assert.equal(e.detail.data, 'test', 'Contains file data');
+            assert.equal(e.detail.type, 'json', 'Type is set');
+            assert.isTrue(e.cancelable, 'Event is cancelable');
+            done();
+          });
+          element._processEntries([file]);
+        });
+      });
+
+      suite('RAML file', function() {
+
+        setup(function() {
+          element = fixture('basic');
+          file = new Blob(['test'], {type: 'text/plain'});
+          file.name = 'api.raml';
+        });
+
+        test('Fires process-incoming-data custom event', function(done) {
+          element.addEventListener('process-incoming-data', function clb(e) {
+            element.removeEventListener('process-incoming-data', clb);
+            assert.isTrue(e.detail.file === file, 'Contains file');
+            assert.equal(e.detail.type, 'raml', 'Type is set');
+            assert.isUndefined(e.detail.filesystem, 'Filesystem is undefined');
+            assert.isTrue(e.cancelable, 'Event is cancelable');
+            done();
+          });
+          element._processEntries([file]);
+        });
+      });
+
+      suite('ZIP file', function() {
+        var response;
+        suiteSetup(function(done) {
+          var r = new XMLHttpRequest();
+          r.open('GET', baseUrl + 'test.json.zip', true);
+          r.responseType = 'arraybuffer';
+          r.onload = function() {
+            response = r.response;
+            done();
+          };
+          r.send();
+        });
+
+        setup(function() {
+          element = fixture('basic');
+          file = new Blob([response], {type: 'application/zip'});
+          file.name = 'api.zip';
+        });
+
+        test('Processes zip file', function() {
+          element._processEntries([file]);
+          assert.isTrue(element.$.unzip.file[0] === file);
+        });
+
+        test('Sets readingFile flag', function() {
+          element._processEntries([file]);
+          assert.isTrue(element.readingFile);
+        });
+
+        test('Fires process-incoming-data custom event', function(done) {
+          element.addEventListener('process-incoming-data', function clb(e) {
+            element.removeEventListener('process-incoming-data', clb);
+            assert.equal(e.detail.data, '{"test": true}\n', 'Contains file data');
+            assert.equal(e.detail.type, 'json', 'Type is set');
+            assert.isTrue(e.cancelable, 'Event is cancelable');
+            done();
+          });
+          element._processEntries([file]);
+        });
+      });
+
+      suite('ZIP file with RAML', function() {
+        var response;
+        suiteSetup(function(done) {
+          var r = new XMLHttpRequest();
+          r.open('GET', baseUrl + 'test.raml.zip', true);
+          r.responseType = 'arraybuffer';
+          r.onload = function() {
+            response = r.response;
+            done();
+          };
+          r.send();
+        });
+
+        setup(function() {
+          element = fixture('basic');
+          file = new Blob([response], {type: 'application/zip'});
+          file.name = 'api.zip';
+        });
+
+        test('Processes zip file', function() {
+          element._processEntries([file]);
+          assert.isTrue(element.$.unzip.file[0] === file);
+        });
+
+        test('Sets readingFile flag', function() {
+          element._processEntries([file]);
+          assert.isTrue(element.readingFile);
+        });
+
+        test('Fires process-incoming-data custom event', function(done) {
+          element.addEventListener('process-incoming-data', function clb(e) {
+            element.removeEventListener('process-incoming-data', clb);
+            assert.isOk(e.detail.file, 'Contains file');
+            assert.equal(e.detail.type, 'raml', 'Type is set');
+            assert.isUndefined(e.detail.filesystem, 'Filesystem is undefined');
+            assert.isTrue(e.cancelable, 'Event is cancelable');
+            done();
+          });
+          element._processEntries([file]);
+        });
+      });
+    });
+
+    suite('Multiple files', function() {
+      var element;
+      var file1;
+      var file2;
+      var list;
+      suite('Regular files', function() {
+        setup(function() {
+          element = fixture('basic');
+          file1 = new Blob(['test'], {type: 'text/plain'});
+          file1.name = 'test1.json';
+          file2 = new Blob(['other'], {type: 'text/plain'});
+          file2.name = 'test2.json';
+          list = [file1, file2];
+        });
+
+        test('Processes files', function() {
+          element._processEntries(list);
+          assert.isTrue(element.$.lookup.files === list);
+        });
+
+        test('Does not finds entry point', function(done) {
+          element._processEntries(list);
+          setTimeout(function() {
+            assert.isTrue(element.noEntryPoint);
+            done();
+          }, 5);
+        });
+      });
+
+      suite('RAML files strong entry point', function() {
+        setup(function() {
+          element = fixture('basic');
+          file1 = new Blob(['test'], {type: 'application/yaml'});
+          file1.name = 'api.raml';
+          file2 = new Blob(['other'], {type: 'application/yaml'});
+          file2.name = 'other.raml';
+          list = [file1, file2];
+        });
+
+        test('Processes files', function() {
+          element._processEntries(list);
+          assert.isTrue(element.$.lookup.files === list);
+        });
+
+        test('Finds entry point', function(done) {
+          element._processEntries(list);
+          setTimeout(function() {
+            assert.isFalse(element.noEntryPoint);
+            done();
+          }, 5);
+        });
+
+        test('Fires process-incoming-data custom event', function(done) {
+          element.addEventListener('process-incoming-data', function clb(e) {
+            element.removeEventListener('process-incoming-data', clb);
+            assert.isTrue(e.detail.file === file1, 'Contains file');
+            assert.equal(e.detail.type, 'raml', 'Type is set');
+            assert.typeOf(e.detail.filesystem, 'array', 'Filesystem is set');
+            assert.isTrue(e.cancelable, 'Event is cancelable');
+            done();
+          });
+          element._processEntries(list);
+        });
+      });
+
+      suite('RAML files weak entry point', function() {
+        setup(function() {
+          element = fixture('basic');
+          file1 = new Blob(['test'], {type: 'application/yaml'});
+          file1.name = 'some.raml';
+          file2 = new Blob(['other'], {type: 'application/yaml'});
+          file2.name = 'other.raml';
+          list = [file1, file2];
+        });
+
+        test('Processes files', function() {
+          element._processEntries(list);
+          assert.isTrue(element.$.lookup.files === list);
+        });
+
+        test('Finds multiple entry points', function(done) {
+          element._processEntries(list);
+          setTimeout(function() {
+            assert.isTrue(element.multipleEntryPoints);
+            assert.typeOf(element.entryPoints, 'array');
+            assert.lengthOf(element.entryPoints, 2);
+            done();
+          }, 5);
+        });
+
+        test('_useEntryPoint clears the sate', function(done) {
+          element._processEntries(list);
+          setTimeout(function() {
+            var button = element.$$('button.paper-item');
+            MockInteractions.tap(button);
+            assert.isFalse(element.multipleEntryPoints);
+            assert.isUndefined(element.entryPoints);
+            done();
+          }, 5);
+        });
+
+        test('_useEntryPoint fires process-incoming-data', function(done) {
+          element._processEntries(list);
+          setTimeout(function() {
+            var button = element.$$('button.paper-item');
+            MockInteractions.tap(button);
+          }, 5);
+
+          element.addEventListener('process-incoming-data', function clb(e) {
+            element.removeEventListener('process-incoming-data', clb);
+            assert.isTrue(e.detail.file === file1, 'Contains file');
+            assert.equal(e.detail.type, 'raml', 'Type is set');
+            assert.typeOf(e.detail.filesystem, 'array', 'Filesystem is set');
+            assert.isTrue(e.cancelable, 'Event is cancelable');
+            done();
+          });
+        });
       });
     });
     </script>

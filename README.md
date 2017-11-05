@@ -23,9 +23,3 @@ Custom property | Description | Default
 `--drop-file-importer-header-color` | Font color of the header | `#fff`
 `--drop-file-importer-info-color` | Color of the info message when reading file | `rgba(0, 0, 0, 0.54)`
 
-
-
-### Events
-| Name | Description | Params |
-| --- | --- | --- |
-| process-incoming-data | Fired when data were read and ready to be processed.  Note, the event can be canceled. | data **String** - Read data |
